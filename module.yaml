@@ -1,1 +1,16 @@
 product: jvm/app
+
+settings:
+  kotlin:
+    serialization: json
+  ktor:
+    enabled: true
+
+dependencies:
+  - org.jetbrains.kotlinx:dataframe-core:1.0.0-rc02
+  - org.jetbrains.kotlinx:dataframe-csv:1.0.0-rc02
+  - $ktor.client.core
+  - $ktor.client.cio
+
+test-dependencies:
+  - $kotlin.test
