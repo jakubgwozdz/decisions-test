@@ -46,15 +46,26 @@ switch):
 
 - `llm` — standard chat-completions LLM (`POST /v1/chat/completions`), flat list
   of all units in the prompt, JSON answer `{"units": [...], "reasoning": ...}`.
-- `decisions-choice` — OpenAI Decisions API (`POST /v1/decisions`) with a
-  single `choice` question.
+- `decisions-choice` — OpenAI Decisions API (`POST /v1/decisions`, model
+  `gpt-6-luna`) with a single `choice` question. Per the API reference, a
+  `choice` question takes **2–255 choices**.
 - `decisions-score` — Decisions API with `score` questions; candidates are
   batched into questions of at most `SCORE_MAX_LEVELS = 10` levels
-  (`SCORE_MIN_LEVELS = 2`). The exact option limit for `score` should be
-  verified against https://developers.openai.com/api/docs/guides/decisions.
+  (`SCORE_MIN_LEVELS = 2`). Per the API reference
+  (https://developers.openai.com/api/reference/resources/decisions/methods/create),
+  a `score` question takes **2–10 ordered levels** (`minItems 2 maxItems 10`) —
+  so yes, the 10-option limit for `score` is real. A request may contain 1–400
+  questions.
 - `jev` — Jev via the Opper.ai gateway, model `typesafe/jev-1.14.0`, key from
-  `local/secrets/OPPER_API_KEY.txt`. See
-  https://docs.opper.ai/build/gateway/evaluations#typesafe-system-one
+  `local/secrets/OPPER_API_KEY.txt`. Opper exposes the same Decisions-shaped
+  API at `POST https://api.opper.ai/v3/compat/decisions` (auth:
+  `Authorization: Bearer <OPPER_API_KEY>`), so the same client code works by
+  switching base URL, key and model. Native System One endpoint:
+  `POST https://api.opper.ai/v3/compat/v1/systemone`. See
+  https://docs.opper.ai/build/gateway/evaluations — question types map 1:1
+  (`predicate`→`noul`, `choice` 2–255 options, `score` 2–10 levels; levels are
+  0-indexed and the score can be fractional). Note: Jev has a 64k total context
+  limit (32k for state + longest question).
 
 Decisions/Jev kinds use hierarchical prompting: first match at the `minor`
 group level, then the `unit` level restricted to units of the predicted
@@ -77,6 +88,8 @@ minors. Predictions are the top-N (N=3) candidates with probability ≥ 0.3.
 - `DECISIONS_APPROACHES` (default `predicate,choice,score`) — legacy switch;
   the plan is to replace it with explicit per-kind runs (`decisions-choice`,
   `decisions-score`).
+- `OPPER_BASE_URL` / `OPPER_MODEL` / `JEV_MODEL` — for the `jev` kind
+  (defaults: `https://api.opper.ai/v3/compat`, `typesafe/jev-1.14.0`).
 
 ## Workflow
 
