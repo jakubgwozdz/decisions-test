@@ -115,7 +115,7 @@ data class QueryResult(
     val expectedMinor: String?,
     val kind: String,
     val stage: String,
-    val approach: String,
+    val approach: String = "",
     val model: String,
     val durationMs: Long,
     val promptTokens: Int?,

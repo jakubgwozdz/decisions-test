@@ -3,8 +3,9 @@ fun main(args: Array<String>) {
         "prepare" -> prepare.run(args.drop(1).toTypedArray())
         "generate" -> generate.run(args.drop(1).toTypedArray())
         "compare" -> compare.run(args.drop(1).toTypedArray())
+        "report" -> report.run(args.drop(1).toTypedArray())
         else -> {
-            println("Usage: <prepare|generate|compare> [args...]")
+            println("Usage: <prepare|generate|compare|report> [args...]")
             kotlin.system.exitProcess(1)
         }
     }

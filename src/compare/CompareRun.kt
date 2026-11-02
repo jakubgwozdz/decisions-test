@@ -145,7 +145,7 @@ fun parseKinds(spec: String): List<BenchmarkKind> =
         }
     }
 
-private data class ApiCall(
+internal data class ApiCall(
     val predictions: List<String>,
     val probabilities: List<DecisionProbability>,
     val rawResponse: String?,
@@ -154,7 +154,7 @@ private data class ApiCall(
     val completionTokens: Int?,
 )
 
-private suspend fun callLlm(
+internal suspend fun callLlm(
     client: HttpClient,
     baseUrl: String,
     apiKey: String,

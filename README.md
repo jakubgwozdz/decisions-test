@@ -15,6 +15,8 @@ Everything runtime lives under `local/` (see `.gitignore`):
 - `local/compare/results-<ts>.jsonl` — one JSON line per query (`QueryResult`:
   kind, stage, approach, model, durationMs, tokens, predictions, probabilities,
   correct, error).
+- `local/report/report-<ts>.md`, `local/report/conclusions-<ts>.md` — aggregated
+  report and LLM conclusions produced by `report`.
 - `local/secrets/OPENAI_API_KEY.txt`, `local/secrets/OPPER_API_KEY.txt` — API
   keys, one per file, never committed (covered by `.gitignore` + `.aiignore`)
   and never printed. The app reads them at runtime only.
@@ -68,6 +70,20 @@ Decisions/Jev kinds use hierarchical prompting: first match at the `minor`
 group level, then the `unit` level restricted to units of the predicted
 minors. Predictions are the top-N (N=3) candidates with probability ≥ 0.3.
 
+### Step 3 — Report & analysis (`report`)
+
+Aggregates compare results into a Markdown report and asks the same LLM as the
+`llm` kind to write conclusions in English as a trimmed, Slack-ready Markdown
+message (mrkdwn: `*bold*`, `code`, bullets — no headings/tables):
+
+- `local/report/report-<ts>.md` — summary table per kind (unit/minor accuracy,
+  errors, avg latency, tokens) + per-ad outcomes + error list.
+- `local/report/conclusions-<ts>.md` — the LLM-written conclusions (also printed).
+
+By default the **newest** `local/compare/results-*.jsonl` is used (one full run);
+`--all` aggregates every results file, `--file <path>` picks one explicitly.
+`--no-llm` skips the analysis step. `--dir`/`--out` override input/output dirs.
+
 ## Running
 
 ```
@@ -76,6 +92,8 @@ minors. Predictions are the top-N (N=3) candidates with probability ≥ 0.3.
 ./kotlin run -- compare --ads 10 --seed 42 --delay-ms 1000
 ./kotlin run -- compare --ads 10 --seed 42                      # all kinds
 COMPARE_KINDS="llm,jev-choice" ./kotlin run -- compare --ads 10   # only these two
+./kotlin run -- report                                          # newest run + LLM conclusions
+./kotlin run -- report --all --no-llm                           # all runs, report only
 ./kotlin test
 ```
 
