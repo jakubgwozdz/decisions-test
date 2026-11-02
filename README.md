@@ -41,8 +41,8 @@ randomly: English, Norwegian, or Polish. Saved as
 For randomly selected postings, query each benchmark **kind** and record
 predictions + latency + probabilities to `local/compare/results-<ts>.jsonl`.
 
-Benchmark kinds, selected with `COMPARE_KINDS` (default
-`llm,decisions-choice,decisions-score`). Each kind is a separate row set in the
+Benchmark kinds. By default **all** kinds run; set `COMPARE_KINDS` to run only
+the listed ones (comma-separated). Each kind is a separate row set in the
 results jsonl (`kind` = the kind name), not a runtime switch:
 
 - `llm` — standard chat-completions LLM (`POST /v1/chat/completions`), flat list
@@ -74,14 +74,14 @@ minors. Predictions are the top-N (N=3) candidates with probability ≥ 0.3.
 ./kotlin run -- prepare
 ./kotlin run -- generate
 ./kotlin run -- compare --ads 10 --seed 42 --delay-ms 1000
-COMPARE_KINDS="llm,decisions-choice,decisions-score,jev-choice,jev-score" \
-  ./kotlin run -- compare --ads 10 --seed 42
+./kotlin run -- compare --ads 10 --seed 42                      # all kinds
+COMPARE_KINDS="llm,jev-choice" ./kotlin run -- compare --ads 10   # only these two
 ./kotlin test
 ```
 
 `compare` configuration (env vars, all optional):
 
-- `COMPARE_KINDS` (default `llm,decisions-choice,decisions-score`)
+- `COMPARE_KINDS` — comma-separated kind list; **unset = all kinds** (`llm`, `decisions-predicate|choice|score`, `jev-predicate|choice|score`)
 - `OPENAI_BASE_URL` (default `https://api.openai.com`)
 - `LLM_MODEL` (default `gpt-6.1-sol`)
 - `DECISIONS_MODEL` (default `gpt-6-luna`)

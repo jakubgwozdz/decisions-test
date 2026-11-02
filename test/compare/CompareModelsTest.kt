@@ -130,6 +130,15 @@ class CompareModelsTest {
     }
 
     @Test
+    fun defaultKindSpecIsAllKinds() {
+        val kinds = parseKinds("llm,decisions-predicate,decisions-choice,decisions-score,jev-predicate,jev-choice,jev-score")
+        assertEquals(7, kinds.size)
+        assertEquals(1, kinds.count { it == LlmKind })
+        assertEquals(3, kinds.count { (it as? DecisionKind)?.provider == DecisionProvider.OPENAI })
+        assertEquals(3, kinds.count { (it as? DecisionKind)?.provider == DecisionProvider.OPPER })
+    }
+
+    @Test
     fun rejectsBadKindSpec() {
         assertFailsWith<IllegalArgumentException> { parseKinds("bogus-x") }
         assertFailsWith<IllegalArgumentException> { parseKinds("decisions-quantum") }
