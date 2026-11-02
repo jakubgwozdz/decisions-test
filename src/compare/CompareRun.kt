@@ -107,6 +107,44 @@ fun scoreQuestions(candidates: List<Pair<String, String>>, kind: String): List<D
     }
 }
 
+enum class Approach(val questionType: String) {
+    PREDICATE("predicate"),
+    CHOICE("choice"),
+    SCORE("score");
+
+    companion object {
+        fun fromName(name: String): Approach? = entries.firstOrNull { it.questionType == name.lowercase() }
+    }
+}
+
+enum class DecisionProvider { OPENAI, OPPER }
+
+sealed interface BenchmarkKind
+
+data object LlmKind : BenchmarkKind
+
+data class DecisionKind(val name: String, val provider: DecisionProvider, val approach: Approach) : BenchmarkKind
+
+fun parseKinds(spec: String): List<BenchmarkKind> =
+    spec.split(",").map { it.trim() }.filter { it.isNotEmpty() }.map { token ->
+        if (token == "llm") {
+            LlmKind
+        } else {
+            val dash = token.indexOf('-')
+            require(dash > 0) {
+                "Unknown kind '$token' (expected: llm | decisions-<predicate|choice|score> | jev-<predicate|choice|score>)"
+            }
+            val provider = when (token.substring(0, dash)) {
+                "decisions" -> DecisionProvider.OPENAI
+                "jev" -> DecisionProvider.OPPER
+                else -> throw IllegalArgumentException("Unknown provider in kind '$token' (expected decisions or jev)")
+            }
+            val approach = Approach.fromName(token.substring(dash + 1))
+                ?: throw IllegalArgumentException("Unknown approach in kind '$token' (expected predicate, choice or score)")
+            DecisionKind(token, provider, approach)
+        }
+    }
+
 private data class ApiCall(
     val predictions: List<String>,
     val probabilities: List<DecisionProbability>,
@@ -148,7 +186,7 @@ private suspend fun callLlm(
 
 private suspend fun callDecisions(
     client: HttpClient,
-    baseUrl: String,
+    endpoint: String,
     apiKey: String,
     model: String,
     adText: String,
@@ -164,7 +202,7 @@ private suspend fun callDecisions(
         "score" -> scoreQuestions(candidates, kind)
         else -> error("Unknown approach: $approach")
     }
-    val response = client.post("$baseUrl/v1/decisions") {
+    val response = client.post(endpoint) {
         bearerAuth(apiKey)
         contentType(ContentType.Application.Json)
         setBody(jsonConfig.encodeToString(DecisionRequest(
@@ -253,11 +291,10 @@ fun run(args: Array<String>) = runBlocking {
     val adsCount = args.argValue("--ads")?.toIntOrNull() ?: 10
     val seed = args.argValue("--seed")?.toLongOrNull()
     val delayMs = args.argValue("--delay-ms")?.toLongOrNull() ?: 1000L
+    val kinds = parseKinds(System.getenv("COMPARE_KINDS") ?: "llm,decisions-choice,decisions-score")
     val baseUrl = System.getenv("OPENAI_BASE_URL") ?: "https://api.openai.com"
     val llmModel = System.getenv("LLM_MODEL") ?: "gpt-6.1-sol"
     val decisionsModel = System.getenv("DECISIONS_MODEL") ?: "gpt-6-luna"
-    val approaches = (System.getenv("DECISIONS_APPROACHES") ?: "predicate,choice,score")
-        .split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
     val apiKeyFile = File("local/secrets/OPENAI_API_KEY.txt")
     require(apiKeyFile.exists()) { "Missing ${apiKeyFile.path}" }
@@ -280,7 +317,7 @@ fun run(args: Array<String>) = runBlocking {
     val compareDir = File("local/compare").apply { mkdirs() }
     val resultsFile = File(compareDir, "results-${Instant.now().epochSecond}.jsonl")
 
-    println("LLM: $llmModel | Decisions: $decisionsModel approaches=$approaches ($baseUrl)")
+    println("Kinds: ${kinds.joinToString { (it as? DecisionKind)?.name ?: "llm" }} | LLM: $llmModel | Decisions: $decisionsModel ($baseUrl)")
     println("Comparing on ${selected.size} ads (of ${adFiles.size} available), results -> ${resultsFile.path}")
 
     HttpClient(CIO) {
@@ -297,69 +334,30 @@ fun run(args: Array<String>) = runBlocking {
 
             println("[${i + 1}/${selected.size}] ${file.name} (expected ${info.code})")
 
-            try {
-                val llmCall = callLlm(client, baseUrl, apiKey, llmModel, llmPrompt(units, minorsByCode, adText))
-                val llmCorrect = if (llmCall.predictions.isEmpty()) null else info.code in llmCall.predictions
-                resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-                    kind = "llm", stage = "unit", approach = "chat", model = llmModel,
-                    durationMs = llmCall.durationMs, promptTokens = llmCall.promptTokens,
-                    completionTokens = llmCall.completionTokens, predictions = llmCall.predictions,
-                    probabilities = llmCall.probabilities,
-                    rawResponse = llmCall.rawResponse, correct = llmCorrect, error = null,
-                )))
-                println("  llm         ${llmCall.predictions} correct=$llmCorrect (${llmCall.durationMs}ms)")
-            } catch (e: Exception) {
-                resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-                    kind = "llm", stage = "unit", approach = "chat", model = llmModel, error = e.message,
-                )))
-                println("  llm         FAILED: ${e.message}")
-            }
-
-            for (approach in approaches) {
-                try {
-                    val minorCandidates = minors.map { it.code to minorDescription(it) }
-                    val minorCall = callDecisions(client, baseUrl, apiKey, decisionsModel, adText,
-                        minorCandidates, "ISCO-08 minor group", approach, questionName = "minor")
-                    val minorCorrect = if (minorCall.predictions.isEmpty() || expectedMinor == null) null
-                        else expectedMinor in minorCall.predictions
-                    resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-                        kind = "decisions", stage = "minor", approach = approach, model = decisionsModel,
-                        durationMs = minorCall.durationMs, promptTokens = minorCall.promptTokens,
-                        completionTokens = minorCall.completionTokens, predictions = minorCall.predictions,
-                        probabilities = minorCall.probabilities,
-                        rawResponse = minorCall.rawResponse, correct = minorCorrect, error = null,
-                    )))
-                    println("  dec/$approach minors ${minorCall.predictions} correct=$minorCorrect (${minorCall.durationMs}ms)")
-
-                    if (minorCall.predictions.isEmpty()) {
-                        resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-                            kind = "decisions", stage = "unit", approach = approach, model = decisionsModel,
-                            error = "No minors above threshold, skipping unit stage",
-                        )))
-                        println("  dec/$approach unit stage skipped (no minors above threshold)")
-                    } else {
-                        val candidateUnits = units.filter { it.minorCode in minorCall.predictions }
-                        val unitInput = if (approach != "predicate" && expectedMinor != null) {
-                            "$adText\n\nCONTEXT: This advertisement was previously classified as ISCO-08 minor group " +
-                                "$expectedMinor: ${minorsByCode[expectedMinor]}. Choose the exact occupation within this context."
-                        } else adText
-                        val unitCall = callDecisions(client, baseUrl, apiKey, decisionsModel, unitInput,
-                            candidateUnits.map { it.code to it.label }, "ISCO-08 occupation (unit group)", approach, questionName = "unit")
-                        val unitCorrect = if (unitCall.predictions.isEmpty()) null else info.code in unitCall.predictions
-                        resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-                            kind = "decisions", stage = "unit", approach = approach, model = decisionsModel,
-                            durationMs = unitCall.durationMs, promptTokens = unitCall.promptTokens,
-                            completionTokens = unitCall.completionTokens, predictions = unitCall.predictions,
-                            probabilities = unitCall.probabilities,
-                            rawResponse = unitCall.rawResponse, correct = unitCorrect, error = null,
-                        )))
-                        println("  dec/$approach units ${unitCall.predictions} correct=$unitCorrect (${unitCall.durationMs}ms)")
+            for (kind in kinds) {
+                when (kind) {
+                    LlmKind -> {
+                        try {
+                            runLlmKind(client, baseUrl, apiKey, llmModel, adText, info.code, units, minorsByCode, base, resultsFile)
+                        } catch (e: Exception) {
+                            resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
+                                kind = "llm", stage = "unit", approach = "chat", model = llmModel, error = e.message,
+                            )))
+                            println("  llm         FAILED: ${e.message}")
+                        }
                     }
-                } catch (e: Exception) {
-                    resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-                        kind = "decisions", stage = "minor", approach = approach, model = decisionsModel, error = e.message,
-                    )))
-                    println("  dec/$approach FAILED: ${e.message}")
+                    is DecisionKind -> {
+                        try {
+                            runDecisionKind(client, kind, "$baseUrl/v1/decisions", apiKey, decisionsModel, adText,
+                                info.code, expectedMinor, units, minors, minorsByCode, base, resultsFile)
+                        } catch (e: Exception) {
+                            resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
+                                kind = kind.name, stage = "minor", approach = kind.approach.questionType,
+                                model = decisionsModel, error = e.message,
+                            )))
+                            println("  ${kind.name} FAILED: ${e.message}")
+                        }
+                    }
                 }
             }
 
@@ -367,6 +365,100 @@ fun run(args: Array<String>) = runBlocking {
         }
     }
     println("Done. Results in ${resultsFile.path}")
+}
+
+private suspend fun runLlmKind(
+    client: HttpClient,
+    baseUrl: String,
+    apiKey: String,
+    model: String,
+    adText: String,
+    adCode: String,
+    units: List<FlatUnit>,
+    minorsByCode: Map<String, String>,
+    base: QueryResult,
+    resultsFile: File,
+) {
+    val llmCall = callLlm(client, baseUrl, apiKey, model, llmPrompt(units, minorsByCode, adText))
+    val llmCorrect = if (llmCall.predictions.isEmpty()) null else adCode in llmCall.predictions
+    resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
+        kind = "llm", stage = "unit", approach = "chat", model = model,
+        durationMs = llmCall.durationMs, promptTokens = llmCall.promptTokens,
+        completionTokens = llmCall.completionTokens, predictions = llmCall.predictions,
+        probabilities = llmCall.probabilities,
+        rawResponse = llmCall.rawResponse, correct = llmCorrect, error = null,
+    )))
+    println("  llm         ${llmCall.predictions} correct=$llmCorrect (${llmCall.durationMs}ms)")
+}
+
+private suspend fun runDecisionKind(
+    client: HttpClient,
+    kind: DecisionKind,
+    endpoint: String,
+    apiKey: String,
+    model: String,
+    adText: String,
+    adCode: String,
+    expectedMinor: String?,
+    units: List<FlatUnit>,
+    minors: List<MinorInfo>,
+    minorsByCode: Map<String, String>,
+    base: QueryResult,
+    resultsFile: File,
+) {
+    val approach = kind.approach.questionType
+    val minorCandidates = minors.map { it.code to minorDescription(it) }
+    val minorCall = callDecisions(client, endpoint, apiKey, model, adText,
+        minorCandidates, "ISCO-08 minor group", approach, questionName = "minor")
+    val minorCorrect = if (minorCall.predictions.isEmpty() || expectedMinor == null) null
+        else expectedMinor in minorCall.predictions
+    resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
+        kind = kind.name, stage = "minor", approach = approach, model = model,
+        durationMs = minorCall.durationMs, promptTokens = minorCall.promptTokens,
+        completionTokens = minorCall.completionTokens, predictions = minorCall.predictions,
+        probabilities = minorCall.probabilities,
+        rawResponse = minorCall.rawResponse, correct = minorCorrect, error = null,
+    )))
+    println("  ${kind.name} minors ${minorCall.predictions} correct=$minorCorrect (${minorCall.durationMs}ms)")
+
+    if (minorCall.predictions.isEmpty()) {
+        resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
+            kind = kind.name, stage = "unit", approach = approach, model = model,
+            error = "No minors above threshold, skipping unit stage",
+        )))
+        println("  ${kind.name} unit stage skipped (no minors above threshold)")
+        return
+    }
+
+    val candidateUnits = units.filter { it.minorCode in minorCall.predictions }
+    if (candidateUnits.size == 1 && kind.approach != Approach.PREDICATE) {
+        val only = candidateUnits.single()
+        val correct = adCode == only.code
+        resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
+            kind = kind.name, stage = "unit", approach = approach, model = model,
+            predictions = listOf(only.code),
+            probabilities = listOf(DecisionProbability(only.code, 1.0, only.label)),
+            rawResponse = null, correct = correct, error = null,
+        )))
+        println("  ${kind.name} unit single candidate ${only.code} correct=$correct (no API call)")
+        return
+    }
+
+    val unitInput = if (approach != "predicate" && expectedMinor != null) {
+        "$adText\n\nCONTEXT: This advertisement was previously classified as ISCO-08 minor group " +
+            "$expectedMinor: ${minorsByCode[expectedMinor]}. Choose the exact occupation within this context."
+    } else adText
+    val unitCall = callDecisions(client, endpoint, apiKey, model, unitInput,
+        candidateUnits.map { it.code to it.label }, "ISCO-08 occupation (unit group)", approach, questionName = "unit")
+    val unitCorrect = if (unitCall.predictions.isEmpty()) null else adCode in unitCall.predictions
+    resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
+        kind = kind.name, stage = "unit", approach = approach, model = model,
+        durationMs = unitCall.durationMs, promptTokens = unitCall.promptTokens,
+        completionTokens = unitCall.completionTokens, predictions = unitCall.predictions,
+        probabilities = unitCall.probabilities,
+        rawResponse = unitCall.rawResponse, correct = unitCorrect, error = null,
+    )))
+    println("  ${kind.name} units ${unitCall.predictions} correct=$unitCorrect (${unitCall.durationMs}ms)")
 }
 
 private fun Array<String>.argValue(name: String): String? =

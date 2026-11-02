@@ -1,6 +1,7 @@
 package compare
 
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -112,6 +113,27 @@ class CompareModelsTest {
         assertEquals(listOf(10, 9, 2), questions.map { it.levels!!.size })
         assertEquals(21, questions.sumOf { it.levels!!.size })
         assertTrue(questions.all { it.levels!!.size in 2..10 })
+    }
+
+    @Test
+    fun parsesKindSpec() {
+        val kinds = parseKinds("llm, decisions-choice, decisions-score, jev-choice")
+        assertEquals(
+            listOf(
+                LlmKind,
+                DecisionKind("decisions-choice", DecisionProvider.OPENAI, Approach.CHOICE),
+                DecisionKind("decisions-score", DecisionProvider.OPENAI, Approach.SCORE),
+                DecisionKind("jev-choice", DecisionProvider.OPPER, Approach.CHOICE),
+            ),
+            kinds,
+        )
+    }
+
+    @Test
+    fun rejectsBadKindSpec() {
+        assertFailsWith<IllegalArgumentException> { parseKinds("bogus-x") }
+        assertFailsWith<IllegalArgumentException> { parseKinds("decisions-quantum") }
+        assertFailsWith<IllegalArgumentException> { parseKinds("wat-choice") }
     }
 
     @Test
