@@ -179,8 +179,8 @@ private suspend fun callLlm(
         probabilities = emptyList(),
         rawResponse = raw,
         durationMs = System.currentTimeMillis() - startedAt,
-        promptTokens = body.usage?.prompt_tokens,
-        completionTokens = body.usage?.completion_tokens,
+        promptTokens = body.usage?.effectivePromptTokens,
+        completionTokens = body.usage?.effectiveCompletionTokens,
     )
 }
 
@@ -250,8 +250,8 @@ private suspend fun callDecisions(
         probabilities = probs.sortedByDescending { it.probability },
         rawResponse = rawBody,
         durationMs = System.currentTimeMillis() - startedAt,
-        promptTokens = body.usage?.prompt_tokens,
-        completionTokens = body.usage?.completion_tokens,
+        promptTokens = body.usage?.effectivePromptTokens,
+        completionTokens = body.usage?.effectiveCompletionTokens,
     )
 }
 
@@ -295,10 +295,19 @@ fun run(args: Array<String>) = runBlocking {
     val baseUrl = System.getenv("OPENAI_BASE_URL") ?: "https://api.openai.com"
     val llmModel = System.getenv("LLM_MODEL") ?: "gpt-6.1-sol"
     val decisionsModel = System.getenv("DECISIONS_MODEL") ?: "gpt-6-luna"
+    val opperBaseUrl = System.getenv("OPPER_BASE_URL") ?: "https://api.opper.ai/v3/compat"
+    val jevModel = System.getenv("JEV_MODEL") ?: "typesafe/jev-1.14.0"
 
     val apiKeyFile = File("local/secrets/OPENAI_API_KEY.txt")
     require(apiKeyFile.exists()) { "Missing ${apiKeyFile.path}" }
     val apiKey = apiKeyFile.readText().trim()
+
+    val needsOpper = kinds.filterIsInstance<DecisionKind>().any { it.provider == DecisionProvider.OPPER }
+    val opperApiKey = if (needsOpper) {
+        val opperKeyFile = File("local/secrets/OPPER_API_KEY.txt")
+        require(opperKeyFile.exists()) { "Missing ${opperKeyFile.path} (needed for jev-* kinds)" }
+        opperKeyFile.readText().trim()
+    } else null
 
     val occupations = jsonConfig.decodeFromString<Occupations>(File("local/occupations.json").readText())
     val units = flattenUnits(occupations)
@@ -317,7 +326,8 @@ fun run(args: Array<String>) = runBlocking {
     val compareDir = File("local/compare").apply { mkdirs() }
     val resultsFile = File(compareDir, "results-${Instant.now().epochSecond}.jsonl")
 
-    println("Kinds: ${kinds.joinToString { (it as? DecisionKind)?.name ?: "llm" }} | LLM: $llmModel | Decisions: $decisionsModel ($baseUrl)")
+    println("Kinds: ${kinds.joinToString { (it as? DecisionKind)?.name ?: "llm" }}")
+    println("LLM: $llmModel ($baseUrl) | Decisions: $decisionsModel | Jev: $jevModel ($opperBaseUrl)")
     println("Comparing on ${selected.size} ads (of ${adFiles.size} available), results -> ${resultsFile.path}")
 
     HttpClient(CIO) {
@@ -347,13 +357,17 @@ fun run(args: Array<String>) = runBlocking {
                         }
                     }
                     is DecisionKind -> {
+                        val (endpoint, key, model) = when (kind.provider) {
+                            DecisionProvider.OPENAI -> Triple("$baseUrl/v1/decisions", apiKey, decisionsModel)
+                            DecisionProvider.OPPER -> Triple("$opperBaseUrl/decisions", requireNotNull(opperApiKey), jevModel)
+                        }
                         try {
-                            runDecisionKind(client, kind, "$baseUrl/v1/decisions", apiKey, decisionsModel, adText,
+                            runDecisionKind(client, kind, endpoint, key, model, adText,
                                 info.code, expectedMinor, units, minors, minorsByCode, base, resultsFile)
                         } catch (e: Exception) {
                             resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
                                 kind = kind.name, stage = "minor", approach = kind.approach.questionType,
-                                model = decisionsModel, error = e.message,
+                                model = model, error = e.message,
                             )))
                             println("  ${kind.name} FAILED: ${e.message}")
                         }

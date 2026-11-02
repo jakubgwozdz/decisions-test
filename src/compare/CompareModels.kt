@@ -22,7 +22,15 @@ data class ChatCompletionRequest(
 )
 
 @Serializable
-data class Usage(val prompt_tokens: Int = 0, val completion_tokens: Int = 0)
+data class Usage(
+    val prompt_tokens: Int = 0,
+    val completion_tokens: Int = 0,
+    val input_tokens: Int? = null,
+    val output_tokens: Int? = null,
+) {
+    val effectivePromptTokens: Int get() = if (prompt_tokens > 0) prompt_tokens else input_tokens ?: 0
+    val effectiveCompletionTokens: Int get() = if (completion_tokens > 0) completion_tokens else output_tokens ?: 0
+}
 
 @Serializable
 data class Choice(val message: ChatMessage)
