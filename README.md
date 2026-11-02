@@ -12,11 +12,14 @@ Everything runtime lives under `local/` (see `.gitignore`):
 - `local/occupations.json` — ISCO-08 occupations grouped major → sub_major →
   minor → unit (436 unit groups), produced by `prepare`.
 - `local/ads/$unit-$lang-$title.md` — generated job postings (en/no/pl).
-- `local/compare/results-<ts>.jsonl` — one JSON line per query (`QueryResult`:
+- `local/compare/results-<timestamp>.jsonl` — one JSON line per query (`QueryResult`:
   kind, stage, approach, model, durationMs, tokens, predictions, probabilities,
   correct, error).
-- `local/report/report-<ts>.md`, `local/report/conclusions-<ts>.md` — aggregated
-  report and LLM conclusions produced by `report`.
+- `local/report/report-<timestamp>.md`, `local/report/conclusions-<timestamp>.md` —
+  aggregated report and LLM conclusions produced by `report`.
+
+Timestamps in file names are UTC ISO-8601 made file-name safe, e.g.
+`results-2026-11-02T19-21-11Z.jsonl` (colons replaced with dashes).
 - `local/secrets/OPENAI_API_KEY.txt`, `local/secrets/OPPER_API_KEY.txt` — API
   keys, one per file, never committed (covered by `.gitignore` + `.aiignore`)
   and never printed. The app reads them at runtime only.
@@ -41,7 +44,7 @@ randomly: English, Norwegian, or Polish. Saved as
 ### Step 2 — Result comparison (`compare`)
 
 For randomly selected postings, query each benchmark **kind** and record
-predictions + latency + probabilities to `local/compare/results-<ts>.jsonl`.
+predictions + latency + probabilities to `local/compare/results-<timestamp>.jsonl`.
 
 Benchmark kinds. By default **all** kinds run; set `COMPARE_KINDS` to run only
 the listed ones (comma-separated). Each kind is a separate row set in the
@@ -76,9 +79,9 @@ Aggregates compare results into a Markdown report and asks the same LLM as the
 `llm` kind to write conclusions in English as a trimmed, Slack-ready Markdown
 message (mrkdwn: `*bold*`, `code`, bullets — no headings/tables):
 
-- `local/report/report-<ts>.md` — summary table per kind (unit/minor accuracy,
-  errors, avg latency, tokens) + per-ad outcomes + error list.
-- `local/report/conclusions-<ts>.md` — the LLM-written conclusions (also printed).
+- `local/report/report-<timestamp>.md` — summary table per kind (unit/minor
+  accuracy, errors, avg latency, tokens) + per-ad outcomes + error list.
+- `local/report/conclusions-<timestamp>.md` — the LLM-written conclusions (also printed).
 
 By default the **newest** `local/compare/results-*.jsonl` is used (one full run);
 `--all` aggregates every results file, `--file <path>` picks one explicitly.

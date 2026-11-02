@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import compare.fileTimestamp
 import java.time.Instant
 
 private const val REPORT_TEXT_LIMIT = 60_000
@@ -42,11 +43,10 @@ fun run(args: Array<String>) = runBlocking {
 
     val candidates = compareDir.listFiles().orEmpty()
         .filter { it.name.startsWith("results-") && it.name.endsWith(".jsonl") }
-        .sortedBy { it.name }
     val files = when {
-        args.contains("--all") -> candidates
+        args.contains("--all") -> candidates.sortedBy { it.name }
         onlyFile != null -> listOf(onlyFile)
-        else -> candidates.takeLast(1)
+        else -> listOfNotNull(candidates.maxByOrNull { it.lastModified() })
     }
     require(files.isNotEmpty()) { "No results-*.jsonl in ${compareDir.path} (run 'compare' first)" }
 
@@ -56,7 +56,7 @@ fun run(args: Array<String>) = runBlocking {
         }
     }
 
-    val ts = Instant.now().epochSecond
+    val ts = fileTimestamp()
     val reportFile = File(outDir, "report-$ts.md")
     val report = buildReport(files.map { it.name }, results, Instant.now().toString())
     reportFile.writeText(report)

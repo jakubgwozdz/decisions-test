@@ -97,3 +97,13 @@ class ReportRunTest {
         assertEquals("plain", unwrapJsonString("\"plain\""))
     }
 }
+
+class FileTimestampTest {
+
+    @Test
+    fun fileTimestampIsIsoUtcSafeForFileNames() {
+        val ts = compare.fileTimestamp(java.time.Instant.parse("2026-11-02T19:21:11.123Z"))
+        assertEquals("2026-11-02T19-21-11Z", ts)
+        assertTrue(ts.none { it == ':' || it == '/' })
+    }
+}

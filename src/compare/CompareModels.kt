@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import java.time.Instant
 import prepare.Occupations
 @Serializable
 data class ChatMessage(val role: String, val content: String)
@@ -134,6 +135,10 @@ data class MinorInfo(val code: String, val label: String, val unitLabels: List<S
 data class AdInfo(val code: String, val lang: String, val slug: String)
 
 val jsonConfig = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+/** UTC timestamp safe for file names, e.g. 2026-11-02T19-21-11Z. */
+fun fileTimestamp(now: Instant = Instant.now()): String =
+    now.toString().substring(0, 19).replace(':', '-') + "Z"
 
 fun flattenUnits(occupations: Occupations): List<FlatUnit> =
     occupations.majors.flatMap { m ->

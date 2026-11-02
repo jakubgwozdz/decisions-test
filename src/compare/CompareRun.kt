@@ -324,7 +324,7 @@ fun run(args: Array<String>) = runBlocking {
     val selected = List(adsCount) { adFiles[rng.nextInt(adFiles.size)] }.distinct()
 
     val compareDir = File("local/compare").apply { mkdirs() }
-    val resultsFile = File(compareDir, "results-${Instant.now().epochSecond}.jsonl")
+    val resultsFile = File(compareDir, "results-${fileTimestamp()}.jsonl")
 
     println("Kinds: ${kinds.joinToString { (it as? DecisionKind)?.name ?: "llm" }}")
     println("LLM: $llmModel ($baseUrl) | Decisions: $decisionsModel | Jev: $jevModel ($opperBaseUrl)")
