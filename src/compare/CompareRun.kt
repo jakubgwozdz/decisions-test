@@ -26,7 +26,7 @@ private const val CHOICE_PROBABILITY_THRESHOLD = 0.3
 
 private fun File.appendLine(line: String) = appendText(line + "\n")
 
-private fun llmPrompt(units: List<FlatUnit>, minors: Map<String, String>, adText: String): List<ChatMessage> {
+private fun chatPrompt(units: List<FlatUnit>, minors: Map<String, String>, adText: String): List<ChatMessage> {
     val minorByCode = minors
     val list = units.joinToString("\n") { unit ->
         val minorLabel = minorByCode[unit.minorCode] ?: "?"
@@ -121,23 +121,23 @@ enum class DecisionProvider { OPENAI, OPPER }
 
 sealed interface BenchmarkKind
 
-data object LlmKind : BenchmarkKind
+data object ChatKind : BenchmarkKind
 
 data class DecisionKind(val name: String, val provider: DecisionProvider, val approach: Approach) : BenchmarkKind
 
 fun parseKinds(spec: String): List<BenchmarkKind> =
     spec.split(",").map { it.trim() }.filter { it.isNotEmpty() }.map { token ->
-        if (token == "llm") {
-            LlmKind
+        if (token == "chat") {
+            ChatKind
         } else {
             val dash = token.indexOf('-')
             require(dash > 0) {
-                "Unknown kind '$token' (expected: llm | decisions-<predicate|choice|score> | jev-<predicate|choice|score>)"
+                "Unknown kind '$token' (expected: chat | openai-<predicate|choice|score> | jev-<predicate|choice|score>)"
             }
             val provider = when (token.substring(0, dash)) {
-                "decisions" -> DecisionProvider.OPENAI
+                "openai" -> DecisionProvider.OPENAI
                 "jev" -> DecisionProvider.OPPER
-                else -> throw IllegalArgumentException("Unknown provider in kind '$token' (expected decisions or jev)")
+                else -> throw IllegalArgumentException("Unknown provider in kind '$token' (expected openai or jev)")
             }
             val approach = Approach.fromName(token.substring(dash + 1))
                 ?: throw IllegalArgumentException("Unknown approach in kind '$token' (expected predicate, choice or score)")
@@ -154,7 +154,7 @@ internal data class ApiCall(
     val completionTokens: Int?,
 )
 
-internal suspend fun callLlm(
+internal suspend fun callChat(
     client: HttpClient,
     baseUrl: String,
     apiKey: String,
@@ -291,10 +291,10 @@ fun run(args: Array<String>) = runBlocking {
     val adsCount = args.argValue("--ads")?.toIntOrNull() ?: 10
     val seed = args.argValue("--seed")?.toLongOrNull()
     val delayMs = args.argValue("--delay-ms")?.toLongOrNull() ?: 1000L
-    val kinds = parseKinds(System.getenv("COMPARE_KINDS") ?: "llm,decisions-predicate,decisions-choice,decisions-score,jev-predicate,jev-choice,jev-score")
+    val kinds = parseKinds(System.getenv("COMPARE_KINDS") ?: "chat,openai-predicate,openai-choice,openai-score,jev-predicate,jev-choice,jev-score")
     val baseUrl = System.getenv("OPENAI_BASE_URL") ?: "https://api.openai.com"
-    val llmModel = System.getenv("LLM_MODEL") ?: "gpt-6.1-sol"
-    val decisionsModel = System.getenv("DECISIONS_MODEL") ?: "gpt-6-luna"
+    val chatModel = System.getenv("CHAT_MODEL") ?: "gpt-6.1-sol"
+    val openaiModel = System.getenv("OPENAI_MODEL") ?: "gpt-6-luna"
     val opperBaseUrl = System.getenv("OPPER_BASE_URL") ?: "https://api.opper.ai/v3/compat"
     val jevModel = System.getenv("JEV_MODEL") ?: "typesafe/jev-1.14.0"
 
@@ -326,8 +326,8 @@ fun run(args: Array<String>) = runBlocking {
     val compareDir = File("local/compare").apply { mkdirs() }
     val resultsFile = File(compareDir, "results-${fileTimestamp()}.jsonl")
 
-    println("Kinds: ${kinds.joinToString { (it as? DecisionKind)?.name ?: "llm" }}")
-    println("LLM: $llmModel ($baseUrl) | Decisions: $decisionsModel | Jev: $jevModel ($opperBaseUrl)")
+    println("Kinds: ${kinds.joinToString { (it as? DecisionKind)?.name ?: "chat" }}")
+    println("Chat: $chatModel ($baseUrl) | Decisions: $openaiModel | Jev: $jevModel ($opperBaseUrl)")
     println("Comparing on ${selected.size} ads (of ${adFiles.size} available), results -> ${resultsFile.path}")
 
     HttpClient(CIO) {
@@ -346,19 +346,19 @@ fun run(args: Array<String>) = runBlocking {
 
             for (kind in kinds) {
                 when (kind) {
-                    LlmKind -> {
+                    ChatKind -> {
                         try {
-                            runLlmKind(client, baseUrl, apiKey, llmModel, adText, info.code, units, minorsByCode, base, resultsFile)
+                            runChatKind(client, baseUrl, apiKey, chatModel, adText, info.code, units, minorsByCode, base, resultsFile)
                         } catch (e: Exception) {
                             resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-                                kind = "llm", stage = "unit", approach = "chat", model = llmModel, error = e.message,
+                                kind = "chat", stage = "unit", approach = "chat", model = chatModel, error = e.message,
                             )))
-                            println("  llm         FAILED: ${e.message}")
+                            println("  chat         FAILED: ${e.message}")
                         }
                     }
                     is DecisionKind -> {
                         val (endpoint, key, model) = when (kind.provider) {
-                            DecisionProvider.OPENAI -> Triple("$baseUrl/v1/decisions", apiKey, decisionsModel)
+                            DecisionProvider.OPENAI -> Triple("$baseUrl/v1/decisions", apiKey, openaiModel)
                             DecisionProvider.OPPER -> Triple("$opperBaseUrl/decisions", requireNotNull(opperApiKey), jevModel)
                         }
                         try {
@@ -381,7 +381,7 @@ fun run(args: Array<String>) = runBlocking {
     println("Done. Results in ${resultsFile.path}")
 }
 
-private suspend fun runLlmKind(
+private suspend fun runChatKind(
     client: HttpClient,
     baseUrl: String,
     apiKey: String,
@@ -393,16 +393,16 @@ private suspend fun runLlmKind(
     base: QueryResult,
     resultsFile: File,
 ) {
-    val llmCall = callLlm(client, baseUrl, apiKey, model, llmPrompt(units, minorsByCode, adText))
-    val llmCorrect = if (llmCall.predictions.isEmpty()) null else adCode in llmCall.predictions
+    val chatCall = callChat(client, baseUrl, apiKey, model, chatPrompt(units, minorsByCode, adText))
+    val chatCorrect = if (chatCall.predictions.isEmpty()) null else adCode in chatCall.predictions
     resultsFile.appendLine(jsonConfig.encodeToString(base.copy(
-        kind = "llm", stage = "unit", approach = "chat", model = model,
-        durationMs = llmCall.durationMs, promptTokens = llmCall.promptTokens,
-        completionTokens = llmCall.completionTokens, predictions = llmCall.predictions,
-        probabilities = llmCall.probabilities,
-        rawResponse = llmCall.rawResponse, correct = llmCorrect, error = null,
+        kind = "chat", stage = "unit", approach = "chat", model = model,
+        durationMs = chatCall.durationMs, promptTokens = chatCall.promptTokens,
+        completionTokens = chatCall.completionTokens, predictions = chatCall.predictions,
+        probabilities = chatCall.probabilities,
+        rawResponse = chatCall.rawResponse, correct = chatCorrect, error = null,
     )))
-    println("  llm         ${llmCall.predictions} correct=$llmCorrect (${llmCall.durationMs}ms)")
+    println("  chat         ${chatCall.predictions} correct=$chatCorrect (${chatCall.durationMs}ms)")
 }
 
 private suspend fun runDecisionKind(

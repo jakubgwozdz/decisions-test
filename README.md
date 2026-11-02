@@ -1,7 +1,7 @@
 # Decision Models Test
 
 A simple Kotlin CLI app for benchmarking decision AI models (OpenAI Decisions,
-Jev via Opper.ai) against a standard LLM (e.g. the cheapest GPT) on an
+Jev via Opper.ai) against a standard chat model (e.g. the cheapest GPT) on an
 occupation-classification task: given a job posting, predict the ISCO-08
 occupation (unit group) it concerns.
 
@@ -16,7 +16,7 @@ Everything runtime lives under `local/` (see `.gitignore`):
   kind, stage, approach, model, durationMs, tokens, predictions, probabilities,
   correct, error).
 - `local/report/report-<timestamp>.md`, `local/report/conclusions-<timestamp>.md` —
-  aggregated report and LLM conclusions produced by `report`.
+  aggregated report and chat conclusions produced by `report`.
 
 Timestamps in file names are UTC ISO-8601 made file-name safe, e.g.
 `results-2026-11-02T19-21-11Z.jsonl` (colons replaced with dashes).
@@ -50,9 +50,9 @@ Benchmark kinds. By default **all** kinds run; set `COMPARE_KINDS` to run only
 the listed ones (comma-separated). Each kind is a separate row set in the
 results jsonl (`kind` = the kind name), not a runtime switch:
 
-- `llm` — standard chat-completions LLM (`POST /v1/chat/completions`), flat list
+- `chat` — standard chat-completions model (`POST /v1/chat/completions`), flat list
   of all units in the prompt, JSON answer `{"units": [...], "reasoning": ...}`.
-- `decisions-<predicate|choice|score>` — OpenAI Decisions API
+- `openai-<predicate|choice|score>` — OpenAI Decisions API
   (`POST /v1/decisions`, model `gpt-6-luna`):
   - `choice` takes **2–255 choices** per question.
   - `score` takes **2–10 ordered levels** (`minItems 2 maxItems 10` per
@@ -75,17 +75,17 @@ minors. Predictions are the top-N (N=3) candidates with probability ≥ 0.3.
 
 ### Step 3 — Report & analysis (`report`)
 
-Aggregates compare results into a Markdown report and asks the same LLM as the
-`llm` kind to write conclusions in English as a trimmed, Slack-ready Markdown
+Aggregates compare results into a Markdown report and asks the same chat model as the
+`chat` kind to write conclusions in English as a trimmed, Slack-ready Markdown
 message (mrkdwn: `*bold*`, `code`, bullets — no headings/tables):
 
 - `local/report/report-<timestamp>.md` — summary table per kind (unit/minor
   accuracy, errors, avg latency, tokens) + per-ad outcomes + error list.
-- `local/report/conclusions-<timestamp>.md` — the LLM-written conclusions (also printed).
+- `local/report/conclusions-<timestamp>.md` — the chat-written conclusions (also printed).
 
 By default the **newest** `local/compare/results-*.jsonl` is used (one full run);
 `--all` aggregates every results file, `--file <path>` picks one explicitly.
-`--no-llm` skips the analysis step. `--dir`/`--out` override input/output dirs.
+`--no-chat` skips the analysis step. `--dir`/`--out` override input/output dirs.
 
 ## Running
 
@@ -94,18 +94,18 @@ By default the **newest** `local/compare/results-*.jsonl` is used (one full run)
 ./kotlin run -- generate
 ./kotlin run -- compare --ads 10 --seed 42 --delay-ms 1000
 ./kotlin run -- compare --ads 10 --seed 42                      # all kinds
-COMPARE_KINDS="llm,jev-choice" ./kotlin run -- compare --ads 10   # only these two
-./kotlin run -- report                                          # newest run + LLM conclusions
-./kotlin run -- report --all --no-llm                           # all runs, report only
+COMPARE_KINDS="chat,jev-choice" ./kotlin run -- compare --ads 10   # only these two
+./kotlin run -- report                                          # newest run + chat conclusions
+./kotlin run -- report --all --no-chat                           # all runs, report only
 ./kotlin test
 ```
 
 `compare` configuration (env vars, all optional):
 
-- `COMPARE_KINDS` — comma-separated kind list; **unset = all kinds** (`llm`, `decisions-predicate|choice|score`, `jev-predicate|choice|score`)
+- `COMPARE_KINDS` — comma-separated kind list; **unset = all kinds** (`chat`, `openai-predicate|choice|score`, `jev-predicate|choice|score`)
 - `OPENAI_BASE_URL` (default `https://api.openai.com`)
-- `LLM_MODEL` (default `gpt-6.1-sol`)
-- `DECISIONS_MODEL` (default `gpt-6-luna`)
+- `CHAT_MODEL` (default `gpt-6.1-sol`)
+- `OPENAI_MODEL` (default `gpt-6-luna`)
 - `OPPER_BASE_URL` (default `https://api.opper.ai/v3/compat`)
 - `JEV_MODEL` (default `typesafe/jev-1.14.0`)
 

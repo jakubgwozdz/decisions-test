@@ -2,7 +2,7 @@ package report
 
 import compare.ChatMessage
 import compare.QueryResult
-import compare.callLlm
+import compare.callChat
 import compare.jsonConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -22,7 +22,7 @@ private fun analysisPrompt(report: String): List<ChatMessage> = listOf(
         "system",
         """
         You are a benchmark analyst. You receive a Markdown report of an occupation-classification
-        benchmark comparing several model kinds (llm, decisions-predicate/choice/score,
+        benchmark comparing several model kinds (chat, openai-predicate/choice/score,
         jev-predicate/choice/score) on ISCO-08 job-ad classification: per-kind accuracy, latency,
         token usage, per-ad outcomes and errors.
         Write the conclusions in ENGLISH as a trimmed Markdown message ready to paste into Slack:
@@ -39,7 +39,7 @@ fun run(args: Array<String>) = runBlocking {
     val compareDir = File(args.argValue("--dir") ?: "local/compare")
     val outDir = File(args.argValue("--out") ?: "local/report").apply { mkdirs() }
     val onlyFile = args.argValue("--file")?.let { File(it) }
-    val skipLlm = args.contains("--no-llm")
+    val skipChat = args.contains("--no-chat")
 
     val candidates = compareDir.listFiles().orEmpty()
         .filter { it.name.startsWith("results-") && it.name.endsWith(".jsonl") }
@@ -62,13 +62,13 @@ fun run(args: Array<String>) = runBlocking {
     reportFile.writeText(report)
     println("Report: ${results.size} rows from ${files.size} file(s) -> ${reportFile.path}")
 
-    if (skipLlm) {
-        println("Skipping LLM analysis (--no-llm)")
+    if (skipChat) {
+        println("Skipping chat analysis (--no-chat)")
         return@runBlocking
     }
 
     val baseUrl = System.getenv("OPENAI_BASE_URL") ?: "https://api.openai.com"
-    val model = System.getenv("LLM_MODEL") ?: "gpt-6.1-sol"
+    val model = System.getenv("CHAT_MODEL") ?: "gpt-6.1-sol"
     val apiKeyFile = File("local/secrets/OPENAI_API_KEY.txt")
     require(apiKeyFile.exists()) { "Missing ${apiKeyFile.path}" }
     val apiKey = apiKeyFile.readText().trim()
@@ -77,7 +77,7 @@ fun run(args: Array<String>) = runBlocking {
     HttpClient(CIO) {
         install(HttpTimeout) { requestTimeoutMillis = 2 * 60 * 1000 }
     }.use { client ->
-        val call = callLlm(client, baseUrl, apiKey, model, analysisPrompt(report.take(REPORT_TEXT_LIMIT)))
+        val call = callChat(client, baseUrl, apiKey, model, analysisPrompt(report.take(REPORT_TEXT_LIMIT)))
         val conclusions = unwrapJsonString(call.rawResponse?.trim().orEmpty())
         require(conclusions.isNotEmpty()) { "Empty analysis response" }
         val conclusionsFile = File(outDir, "conclusions-$ts.md")

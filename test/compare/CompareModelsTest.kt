@@ -117,12 +117,12 @@ class CompareModelsTest {
 
     @Test
     fun parsesKindSpec() {
-        val kinds = parseKinds("llm, decisions-choice, decisions-score, jev-choice")
+        val kinds = parseKinds("chat, openai-choice, openai-score, jev-choice")
         assertEquals(
             listOf(
-                LlmKind,
-                DecisionKind("decisions-choice", DecisionProvider.OPENAI, Approach.CHOICE),
-                DecisionKind("decisions-score", DecisionProvider.OPENAI, Approach.SCORE),
+                ChatKind,
+                DecisionKind("openai-choice", DecisionProvider.OPENAI, Approach.CHOICE),
+                DecisionKind("openai-score", DecisionProvider.OPENAI, Approach.SCORE),
                 DecisionKind("jev-choice", DecisionProvider.OPPER, Approach.CHOICE),
             ),
             kinds,
@@ -131,9 +131,9 @@ class CompareModelsTest {
 
     @Test
     fun defaultKindSpecIsAllKinds() {
-        val kinds = parseKinds("llm,decisions-predicate,decisions-choice,decisions-score,jev-predicate,jev-choice,jev-score")
+        val kinds = parseKinds("chat,openai-predicate,openai-choice,openai-score,jev-predicate,jev-choice,jev-score")
         assertEquals(7, kinds.size)
-        assertEquals(1, kinds.count { it == LlmKind })
+        assertEquals(1, kinds.count { it == ChatKind })
         assertEquals(3, kinds.count { (it as? DecisionKind)?.provider == DecisionProvider.OPENAI })
         assertEquals(3, kinds.count { (it as? DecisionKind)?.provider == DecisionProvider.OPPER })
     }
@@ -141,7 +141,7 @@ class CompareModelsTest {
     @Test
     fun rejectsBadKindSpec() {
         assertFailsWith<IllegalArgumentException> { parseKinds("bogus-x") }
-        assertFailsWith<IllegalArgumentException> { parseKinds("decisions-quantum") }
+        assertFailsWith<IllegalArgumentException> { parseKinds("openai-quantum") }
         assertFailsWith<IllegalArgumentException> { parseKinds("wat-choice") }
     }
 

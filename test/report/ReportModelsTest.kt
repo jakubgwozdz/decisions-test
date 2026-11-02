@@ -37,20 +37,20 @@ class ReportModelsTest {
     @Test
     fun aggregatesPerKindAndAd() {
         val results = listOf(
-            row("llm", "unit", "a.md", true),
-            row("llm", "unit", "b.md", false),
+            row("chat", "unit", "a.md", true),
+            row("chat", "unit", "b.md", false),
             row("jev-choice", "unit", "a.md", true, predictions = listOf("1111")),
             row("jev-choice", "minor", "a.md", true),
             row("jev-choice", "unit", "b.md", null, error = "boom"),
         )
         val (stats, outcomes) = aggregate(results)
 
-        val llm = stats.single { it.kind == "llm" }
-        assertEquals(2, llm.unitTotal)
-        assertEquals(1, llm.unitCorrect)
-        assertEquals(0.5, llm.unitAccuracy)
-        assertEquals(20, llm.promptTokens)
-        assertEquals(100, llm.avgUnitMs)
+        val chat = stats.single { it.kind == "chat" }
+        assertEquals(2, chat.unitTotal)
+        assertEquals(1, chat.unitCorrect)
+        assertEquals(0.5, chat.unitAccuracy)
+        assertEquals(20, chat.promptTokens)
+        assertEquals(100, chat.avgUnitMs)
 
         val jev = stats.single { it.kind == "jev-choice" }
         assertEquals(1, jev.errors)
@@ -60,19 +60,19 @@ class ReportModelsTest {
 
         assertEquals(2, outcomes.size)
         val a = outcomes.single { it.ad == "a.md" }
-        assertEquals(true, a.results["llm"])
+        assertEquals(true, a.results["chat"])
         assertEquals(listOf("1111"), a.predictions["jev-choice"])
     }
 
     @Test
     fun reportContainsSummaryTableOutcomesAndErrors() {
         val results = listOf(
-            row("llm", "unit", "a.md", false, predictions = listOf("9999")),
-            row("llm", "minor", "a.md", true),
+            row("chat", "unit", "a.md", false, predictions = listOf("9999")),
+            row("chat", "minor", "a.md", true),
             row("jev-score", "unit", "a.md", null, error = "HTTP 500"),
         )
         val report = buildReport(listOf("results-1.jsonl"), results, "now")
-        assertTrue(report.contains("| llm | m | 1 | 0/1 (0%) | 1/1 (100%) | 0 | 100 | 20 | 10 |"))
+        assertTrue(report.contains("| chat | m | 1 | 0/1 (0%) | 1/1 (100%) | 0 | 100 | 20 | 10 |"))
         assertTrue(report.contains("WRONG -> 9999"))
         assertTrue(report.contains("no prediction"))
         assertTrue(report.contains("## Errors (1)"))
