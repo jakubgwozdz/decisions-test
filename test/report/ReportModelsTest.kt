@@ -72,11 +72,44 @@ class ReportModelsTest {
             row("jev-score", "unit", "a.md", null, error = "HTTP 500"),
         )
         val report = buildReport(listOf("results-1.jsonl"), results, "now")
-        assertTrue(report.contains("| chat | m | 1 | 0/1 (0%) | 1/1 (100%) | 0 | 100 | 20 | 10 |"))
+        assertTrue(report.contains("| chat | m | 1 | 0/1 (0%) | 1/1 (100%) | 0 | 100 | 20 | 10 | - |"))
         assertTrue(report.contains("WRONG -> 9999"))
         assertTrue(report.contains("no prediction"))
         assertTrue(report.contains("## Errors (1)"))
         assertTrue(report.contains("HTTP 500"))
+    }
+
+    @Test
+    fun costIsComputedFromModelPricing() {
+        assertEquals("0.10", MODEL_PRICING.first { it.first == "gpt-6-luna" }.second.inputUsdPer1M)
+        assertEquals("10.00", MODEL_PRICING.first { it.first == "gpt-6.1-sol" }.second.outputUsdPer1M)
+        assertEquals("0", MODEL_PRICING.first { it.first == "jev-1.14.0" }.second.outputUsdPer1M)
+
+        // gpt-6-luna: $0.10/1M in, $0.50/1M out
+        assertEquals(0, costUsd("gpt-6-luna", 1_000_000, 1_000_000)!!.compareTo(java.math.BigDecimal("0.60")))
+        // gpt-6.1-sol: $2.00/1M in, $10.00/1M out
+        assertEquals(0, costUsd("gpt-6.1-sol", 1_000_000, 1_000_000)!!.compareTo(java.math.BigDecimal("12.00")))
+        // jev-1.14.0: $0.04/1M in, free output; prefix like "typesafe/" must still match
+        assertEquals(0, costUsd("typesafe/jev-1.14.0", 1_000_000, 1_000_000)!!.compareTo(java.math.BigDecimal("0.04")))
+        // unknown model -> no cost
+        assertEquals(null, costUsd("m", 10, 5))
+
+        assertEquals("$0.6", formatCost(costUsd("gpt-6-luna", 1_000_000, 1_000_000)))
+        assertEquals("$0.399666", formatCost(costUsd("gpt-6.1-sol", 195_033, 960)))
+        assertEquals("$0", formatCost(java.math.BigDecimal.ZERO))
+        assertEquals("-", formatCost(null))
+    }
+
+    @Test
+    fun reportShowsCostPerKindAndTotal() {
+        val results = listOf(
+            row("chat", "unit", "a.md", true).copy(model = "gpt-6-luna", promptTokens = 1_000_000, completionTokens = 1_000_000), // $0.6
+            row("jev-choice", "unit", "a.md", true).copy(model = "typesafe/jev-1.14.0", promptTokens = 1_000_000, completionTokens = 0), // $0.04
+        )
+        val report = buildReport(listOf("results-1.jsonl"), results, "now")
+        assertTrue(report.contains("| chat | gpt-6-luna | 1 | 1/1 (100%) | 0/0 (0%) | 0 | 100 | 1000000 | 1000000 | $0.6 |"))
+        assertTrue(report.contains("| jev-choice | typesafe/jev-1.14.0 | 1 | 1/1 (100%) | 0/0 (0%) | 0 | 100 | 1000000 | 0 | $0.04 |"))
+        assertTrue(report.contains("- Total cost: $0.64")) // 0.60 + 0.04
     }
 }
 

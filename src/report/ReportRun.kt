@@ -28,8 +28,9 @@ private fun analysisPrompt(report: String): List<ChatMessage> = listOf(
         Write the conclusions in ENGLISH as a trimmed Markdown message ready to paste into Slack:
         use Slack mrkdwn (*bold*, `code`, bullet lists with "-"), NO ATX headings, no tables,
         no links. Keep it under 30 lines. Structure: one-line overall verdict, key numbers per
-        kind (unit accuracy, avg latency, tokens, errors), then 3-5 bullet conclusions and
-        suggested next steps. Respond ONLY with the Slack-ready message, no preamble, no fences.
+        kind (unit accuracy, avg latency, tokens, costs, errors), then 3-5 bullet conclusions and
+        suggested next steps, focusing mostly on speed and costs. 
+        Respond ONLY with the Slack-ready message, no preamble, no fences.
         """.trimIndent(),
     ),
     ChatMessage("user", "REPORT:\n$report"),
