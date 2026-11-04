@@ -78,7 +78,7 @@ fun run(args: Array<String>) = runBlocking {
     HttpClient(CIO) {
         install(HttpTimeout) { requestTimeoutMillis = 2 * 60 * 1000 }
     }.use { client ->
-        val call = callChat(client, baseUrl, apiKey, model, analysisPrompt(report.take(REPORT_TEXT_LIMIT)))
+        val call = callChat(client, baseUrl, apiKey, model, analysisPrompt(report.take(REPORT_TEXT_LIMIT)), jsonMode = false)
         val conclusions = unwrapJsonString(call.rawResponse?.trim().orEmpty())
         require(conclusions.isNotEmpty()) { "Empty analysis response" }
         val conclusionsFile = File(outDir, "conclusions-$ts.md")

@@ -10,6 +10,7 @@ import prepare.MinorGroup
 import prepare.Occupations
 import prepare.SubMajorGroup
 import prepare.UnitGroup
+import java.io.File
 
 class CompareModelsTest {
 
@@ -60,8 +61,11 @@ class CompareModelsTest {
     fun parsesAdFileName() {
         val ad = parseAdFileName("1114-en-senior-officials-of-special-interest-organizations.md")
         assertEquals(AdInfo("1114", "en", "senior-officials-of-special-interest-organizations"), ad)
+        val armedForces = parseAdFileName("110-pl-commissioned-armed-forces-officers.md")
+        assertEquals(AdInfo("110", "pl", "commissioned-armed-forces-officers"), armedForces)
         assertNull(parseAdFileName("README.md"))
-        assertNull(parseAdFileName("111-en-too-short.md"))
+        assertNull(parseAdFileName("11-en-too-short.md"))
+        assertNull(parseAdFileName("11111-en-too-long.md"))
     }
 
     @Test
@@ -150,5 +154,45 @@ class CompareModelsTest {
         val questions = scoreQuestions(listOf("1" to "A", "2" to "B", "3" to "C"), "test")
         assertEquals(1, questions.size)
         assertEquals(3, questions[0].levels!!.size)
+    }
+
+    @Test
+    fun doneAdKindsCollectsOnlyNonErrorRowsAcrossFiles() {
+        val dir = kotlin.io.path.createTempDirectory(prefix = "compare-done").toFile()
+        try {
+            fun row(ad: String, kind: String, error: String? = null) = jsonConfig.encodeToString(QueryResult(
+                timestamp = "2026-11-04T20-00-00Z", ad = ad, lang = "en", expected = "1111",
+                expectedMinor = "111", kind = kind, stage = "unit", approach = "chat", model = "m",
+                durationMs = 1, promptTokens = null, completionTokens = null,
+                predictions = listOf("1111"), probabilities = emptyList(), rawResponse = null,
+                correct = true, error = error,
+            ))
+            File(dir, "results-2026-11-04T20-00-00Z.jsonl").writeText(
+                listOf(
+                    row("1111-en-a.md", "chat"),
+                    row("1111-en-a.md", "jev-choice", error = "HTTP 500"),
+                    row("1112-en-b.md", "openai-score"),
+                    "",
+                    "not json at all",
+                ).joinToString("\n") + "\n",
+            )
+            File(dir, "results-2026-11-04T21-00-00Z.jsonl").writeText(
+                row("1111-en-a.md", "jev-choice") + "\n" + row("1113-en-c.md", "chat") + "\n",
+            )
+            File(dir, "unrelated.txt").writeText(row("9999-en-x.md", "chat"))
+
+            val done = doneAdKinds(dir)
+            assertEquals(
+                setOf(
+                    "1111-en-a.md" to "chat",
+                    "1111-en-a.md" to "jev-choice",
+                    "1112-en-b.md" to "openai-score",
+                    "1113-en-c.md" to "chat",
+                ),
+                done,
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 }

@@ -16,7 +16,6 @@ import kotlinx.serialization.encodeToString
 import prepare.Occupations
 import java.io.File
 import java.time.Instant
-import kotlin.random.Random
 
 private const val AD_TEXT_LIMIT = 12_000
 
@@ -160,12 +159,17 @@ internal suspend fun callChat(
     apiKey: String,
     model: String,
     messages: List<ChatMessage>,
+    jsonMode: Boolean = true,
 ): ApiCall {
     val startedAt = System.currentTimeMillis()
     val response = client.post("$baseUrl/v1/chat/completions") {
         bearerAuth(apiKey)
         contentType(ContentType.Application.Json)
-        setBody(jsonConfig.encodeToString(ChatCompletionRequest(model, messages)))
+        setBody(jsonConfig.encodeToString(ChatCompletionRequest(
+            model,
+            messages,
+            response_format = if (jsonMode) ResponseFormat("json_object") else null,
+        )))
     }
     if (!response.status.isSuccess()) {
         error("HTTP ${response.status}: ${response.bodyAsText()}")
@@ -175,7 +179,7 @@ internal suspend fun callChat(
     val raw = body.choices.firstOrNull()?.message?.content
         ?: error("Empty choices in response")
     return ApiCall(
-        predictions = parsePredictions(raw, "units"),
+        predictions = if (jsonMode) parsePredictions(raw, "units") else emptyList(),
         probabilities = emptyList(),
         rawResponse = raw,
         durationMs = System.currentTimeMillis() - startedAt,
@@ -287,9 +291,28 @@ private fun result(
     error = error,
 )
 
+/**
+ * Ads already covered by previous runs: pairs (ad file name, kind) that have at least one
+ * non-error row in any results-*.jsonl. Used to skip already-processed ads on re-runs.
+ */
+fun doneAdKinds(compareDir: File): Set<Pair<String, String>> {
+    val done = mutableSetOf<Pair<String, String>>()
+    compareDir.listFiles().orEmpty()
+        .filter { it.name.startsWith("results-") && it.name.endsWith(".jsonl") }
+        .forEach { f ->
+            f.readLines().forEach { line ->
+                if (line.isBlank()) return@forEach
+                runCatching {
+                    val r = jsonConfig.decodeFromString(QueryResult.serializer(), line)
+                    if (r.error == null) done += r.ad to r.kind
+                }
+            }
+        }
+    return done
+}
+
 fun run(args: Array<String>) = runBlocking {
     val adsCount = args.argValue("--ads")?.toIntOrNull() ?: 10
-    val seed = args.argValue("--seed")?.toLongOrNull()
     val delayMs = args.argValue("--delay-ms")?.toLongOrNull() ?: 1000L
     val kinds = parseKinds(System.getenv("COMPARE_KINDS") ?: "chat,openai-predicate,openai-choice,openai-score,jev-predicate,jev-choice,jev-score")
     val baseUrl = System.getenv("OPENAI_BASE_URL") ?: "https://api.openai.com"
@@ -318,17 +341,26 @@ fun run(args: Array<String>) = runBlocking {
     val adsDir = File("local/ads")
     val adFiles = adsDir.listFiles().orEmpty()
         .mapNotNull { f -> parseAdFileName(f.name)?.let { it to f } }
+        .sortedBy { it.second.name }
     require(adFiles.isNotEmpty()) { "No ads in ${adsDir.path}, run 'generate' first" }
 
-    val rng = if (seed != null) Random(seed) else Random.Default
-    val selected = List(adsCount) { adFiles[rng.nextInt(adFiles.size)] }.distinct()
-
     val compareDir = File("local/compare").apply { mkdirs() }
+    val done = doneAdKinds(compareDir)
+    val kindNames = kinds.map { (it as? DecisionKind)?.name ?: "chat" }
+    val pending = adFiles.filter { (info, file) ->
+        kindNames.any { kind -> file.name to kind !in done }
+    }
+    val selected = pending.take(adsCount)
+    if (selected.isEmpty()) {
+        println("Nothing to do: all ${adFiles.size} ads already covered by previous runs in ${compareDir.path}")
+        return@runBlocking
+    }
+
     val resultsFile = File(compareDir, "results-${fileTimestamp()}.jsonl")
 
-    println("Kinds: ${kinds.joinToString { (it as? DecisionKind)?.name ?: "chat" }}")
+    println("Kinds: ${kindNames.joinToString()}")
     println("Chat: $chatModel ($baseUrl) | Decisions: $openaiModel | Jev: $jevModel ($opperBaseUrl)")
-    println("Comparing on ${selected.size} ads (of ${adFiles.size} available), results -> ${resultsFile.path}")
+    println("Comparing on ${selected.size} ads (${pending.size} pending of ${adFiles.size} available, ${done.size} ad-kind pairs done), results -> ${resultsFile.path}")
 
     HttpClient(CIO) {
         install(HttpTimeout) { requestTimeoutMillis = 2 * 60 * 1000 }
@@ -345,6 +377,11 @@ fun run(args: Array<String>) = runBlocking {
             println("[${i + 1}/${selected.size}] ${file.name} (expected ${info.code})")
 
             for (kind in kinds) {
+                val kindName = (kind as? DecisionKind)?.name ?: "chat"
+                if (file.name to kindName in done) {
+                    println("  $kindName already done, skipping")
+                    continue
+                }
                 when (kind) {
                     ChatKind -> {
                         try {

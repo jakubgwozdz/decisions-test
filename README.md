@@ -43,8 +43,16 @@ randomly: English, Norwegian, or Polish. Saved as
 
 ### Step 2 — Result comparison (`compare`)
 
-For randomly selected postings, query each benchmark **kind** and record
-predictions + latency + probabilities to `local/compare/results-<timestamp>.jsonl`.
+For job postings, query each benchmark **kind** and record predictions + latency +
+probabilities to `local/compare/results-<timestamp>.jsonl`.
+
+Ads are processed **incrementally in deterministic (alphabetical) order**: every run
+scans all existing `results-*.jsonl` files and skips (ad, kind) pairs that already
+have a non-error row, so repeated `./kotlin run -- compare --ads N` calls process the
+next N not-yet-covered ads until all are done (then it prints "Nothing to do").
+Partial coverage is fine: an ad is picked if at least one kind is still missing for it,
+and kinds already done for that ad are skipped individually. Rows with `error` set do
+not count as done and are retried on the next run.
 
 Benchmark kinds. By default **all** kinds run; set `COMPARE_KINDS` to run only
 the listed ones (comma-separated). Each kind is a separate row set in the
@@ -92,9 +100,9 @@ By default the **newest** `local/compare/results-*.jsonl` is used (one full run)
 ```
 ./kotlin run -- prepare
 ./kotlin run -- generate
-./kotlin run -- compare --ads 10 --seed 42 --delay-ms 1000
-./kotlin run -- compare --ads 10 --seed 42                      # all kinds
-COMPARE_KINDS="chat,jev-choice" ./kotlin run -- compare --ads 10   # only these two
+./kotlin run -- compare --ads 20 --delay-ms 200    # next 20 pending ads, all kinds
+./kotlin run -- compare --ads 20                    # repeat until "Nothing to do"
+COMPARE_KINDS="chat,jev-choice" ./kotlin run -- compare --ads 20   # only these two
 ./kotlin run -- report                                          # newest run + chat conclusions
 ./kotlin run -- report --all --no-chat                           # all runs, report only
 ./kotlin test

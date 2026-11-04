@@ -19,7 +19,8 @@ data class ResponseFormat(val type: String)
 data class ChatCompletionRequest(
     val model: String,
     val messages: List<ChatMessage>,
-    val response_format: ResponseFormat = ResponseFormat("json_object"),
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val response_format: ResponseFormat? = null,
 )
 
 @Serializable
@@ -159,7 +160,7 @@ fun minorsOf(occupations: Occupations): List<MinorInfo> =
     }
 
 fun parseAdFileName(name: String): AdInfo? {
-    val m = Regex("^(\\d{4})-([a-z]{2})-(.+)\\.md$").matchEntire(name) ?: return null
+    val m = Regex("^(\\d{3,4})-([a-z]{2})-(.+)\\.md$").matchEntire(name) ?: return null
     return AdInfo(m.groupValues[1], m.groupValues[2], m.groupValues[3])
 }
 

@@ -129,6 +129,12 @@ class ReportRunTest {
     fun unwrapUnquotesJsonString() {
         assertEquals("plain", unwrapJsonString("\"plain\""))
     }
+
+    @Test
+    fun unwrapFallsBackToRawForEmptyJsonObject() {
+        // model forced into json_object mode but asked for plain text may return {"": ""}
+        assertEquals("{\"\": \"\"}", unwrapJsonString("{\"\": \"\"}"))
+    }
 }
 
 class FileTimestampTest {
