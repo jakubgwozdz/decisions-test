@@ -5,6 +5,11 @@ Jev via Opper.ai) against a standard chat model (e.g. the cheapest GPT) on an
 occupation-classification task: given a job posting, predict the ISCO-08
 occupation (unit group) it concerns.
 
+## WARNING WARNING WARNING DISCLAIMER 
+
+This is vibe coded flop (Mistral Large 4 via several different harnesses), that was
+part of the exercise. It may work, may not work, may even break something.
+
 ## Data & artifacts (local/, gitignored)
 
 Everything runtime lives under `local/` (see `.gitignore`):
